@@ -25,6 +25,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 ### Added
 
 - SG-008 now flags Unicode tag characters (U+E0000 to U+E007F), which are not drawn on screen but a model can read (ASCII smuggling), and the text hidden in them is decoded and scanned with every rule: a finding that came from hidden text says so. The tag characters of the England, Scotland and Wales flag emojis are not flagged (#54).
+- SG-008 now flags a run of three or more Unicode variation selectors (U+FE00 to U+FE0F and U+E0100 to U+E01EF), which can hide any bytes, one per selector, behind a single emoji, and shows the decoded text in the finding. One selector after an emoji or a CJK character, as in ordinary text, is not flagged (#107).
 
 ## [1.3.0]
 

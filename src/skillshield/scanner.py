@@ -17,6 +17,7 @@ from skillshield.rules import (
     Severity,
     hidden_tag_match_lines,
     hidden_tag_text_with_lines,
+    variation_selector_match_lines,
 )
 
 # Severity weights for risk score calculation
@@ -283,9 +284,10 @@ class SkillScanner:
             else:
                 line_numbers = set(_find_all_line_numbers(text, snippets))
             if rule.id == "SG-008":
-                # The tag matches are generated snippets, so they are not in the text to be
+                # The tag and variation selector matches are generated snippets, so they are not in the text to be
                 # searched for; their lines come from the text.
                 line_numbers.update(hidden_tag_match_lines(text))
+                line_numbers.update(variation_selector_match_lines(text))
             # A match in the hidden text reports the lines whose characters it is made of.
             for match in found_hidden:
                 start = hidden.find(match)

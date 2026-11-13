@@ -894,6 +894,53 @@ def _hidden_tag_hits(text: str) -> list[tuple[int, str]]:
     return matches
 
 
+# Variation selectors (U+FE00 to U+FE0F and U+E0100 to U+E01EF) choose how the character in
+# front of them is drawn and are not drawn themselves. Ordinary text uses one at a time: the
+# U+FE0F that turns a heart into a red heart emoji, or one ideographic variation selector
+# after a CJK character. There are 256 of them, so a run can carry any bytes, one byte per
+# selector, behind a single emoji (Paul Butler, "Smuggling arbitrary data through an emoji",
+# February 2025). A run of three or more is flagged.
+_VARIATION_SELECTOR_RE = re.compile("[\ufe00-\ufe0f\U000e0100-\U000e01ef]")
+_VARIATION_SELECTOR_RUN_RE = re.compile("[\ufe00-\ufe0f\U000e0100-\U000e01ef]{3,}")
+
+
+def _decode_variation_selectors(run: str) -> str:
+    """The text a run of variation selectors carries: U+FE00-U+FE0F are bytes 0-15 and
+    U+E0100-U+E01EF are bytes 16-255, read as UTF-8. Characters that would not print are shown
+    as U+FFFD, so the hidden text cannot break up or reorder the finding."""
+    data = bytes(ord(c) - 0xFE00 if ord(c) <= 0xFE0F else ord(c) - 0xE0100 + 16 for c in run)
+    decoded = data.decode("utf-8", errors="replace")
+    return "".join(c if c.isprintable() else "\ufffd" for c in decoded)
+
+
+def variation_selector_match_lines(text: str) -> list[int]:
+    """The lines of the SG-008 variation selector matches, taken from the text."""
+    return [lineno for lineno, _ in _variation_selector_hits(text)]
+
+
+def _variation_selector_hits(text: str) -> list[tuple[int, str]]:
+    """The line and the match for each line that carries a run of three or more variation
+    selectors."""
+    if not _VARIATION_SELECTOR_RUN_RE.search(text):
+        return []
+    matches: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        runs = list(_VARIATION_SELECTOR_RUN_RE.finditer(line))
+        if not runs:
+            continue
+        count = sum(len(m[0]) for m in runs)
+        hidden = " ".join(_decode_variation_selectors(m[0]) for m in runs)
+        visible = _VARIATION_SELECTOR_RE.sub("", line).strip()[:60]
+        matches.append(
+            (
+                lineno,
+                f'{visible + " " if visible else ""}[line {lineno}: {count} invisible variation '
+                f'selectors, decoding to "{hidden[:80]}"]',
+            )
+        )
+    return matches
+
+
 def _check_obfuscation(text: str) -> list[str]:
     matches = []
     # Base64 encoded blocks (>100 chars of b64 chars)
@@ -935,6 +982,7 @@ def _check_obfuscation(text: str) -> list[str]:
         matches.append(f"{shown} [line {lineno}: {names}]")
 
     matches.extend(_hidden_tag_matches(text))
+    matches.extend(snippet for _, snippet in _variation_selector_hits(text))
     return matches
 
 
@@ -952,14 +1000,17 @@ RULE_OBFUSCATION = Rule(
         "Boucher and Anderson). Unicode tag characters (U+E0000-U+E007F) are not drawn "
         "on screen but a model can read them, so a skill can carry a whole hidden "
         "instruction in them (ASCII smuggling); the text they hide is decoded and "
-        "scanned with every rule."
+        "scanned with every rule. A run of three or more variation selectors "
+        "(U+FE00-U+FE0F, U+E0100-U+E01EF) can carry hidden bytes behind an emoji "
+        "(Paul Butler, 2025); the bytes are decoded and shown in the finding."
     ),
     remediation=(
         "All skill instructions must be human-readable. Obfuscated content "
         "should be decoded and audited, or the skill should be rejected. Remove "
         "any bidirectional control characters; ordinary Arabic and Hebrew text "
         "does not need them. Remove any Unicode tag characters; only the emoji "
-        "flags of England, Scotland and Wales use them."
+        "flags of England, Scotland and Wales use them. Remove runs of variation "
+        "selectors; an emoji needs at most one."
     ),
     check_fn=_check_obfuscation,
     tags=["obfuscation", "evasion", "supply-chain", "owasp-asi01", "owasp-ast08"],
